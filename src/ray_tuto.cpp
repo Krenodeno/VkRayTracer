@@ -118,7 +118,8 @@ int main( const int argc, const char **argv )
 					pn= -pn;
 
 				// couleur du pixel
-				Color color= mesh.mesh_material(mesh.materials()[hit.triangle_id]).diffuse;
+				float cos_theta = dot(normalize(pn), normalize(-ray.d));
+				Color color= std::max(0.f, cos_theta) * mesh.mesh_material(mesh.materials()[hit.triangle_id]).diffuse;
 				image(px, py)= Color(color, 1);
 			}
 		}
@@ -129,8 +130,8 @@ int main( const int argc, const char **argv )
 	printf("cpu  %ds %03dms\n", int(cpu_time / 1000), int(cpu_time % 1000));
 
 	// enregistrer l'image resultat
-	write_image(image, "render.png");
-	write_image_hdr(image, "render.hdr");
+	write_image(image, "render1.png");
+	write_image_hdr(image, "render1.hdr");
 
 	return 0;
 }
