@@ -47,3 +47,11 @@ project "ray_tuto_mc"
 	files { "src/ray_tuto_mc.cpp" }
 
 	links "gKit"
+
+project "tuto_bvh"
+	kind "ConsoleApp"
+	files { "src/tuto_bvh.cpp" }
+
+project "tuto_bvh_simple"
+	kind "ConsoleApp"
+	files { "src/tuto_bvh_simple.bvh" }
