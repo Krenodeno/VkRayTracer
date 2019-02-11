@@ -1,5 +1,4 @@
 build/
 bin/
-render.hdr
-render.png
-
+*.hdr
+*.png

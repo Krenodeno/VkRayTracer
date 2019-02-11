@@ -52,6 +52,10 @@ project "tuto_bvh"
 	kind "ConsoleApp"
 	files { "src/tuto_bvh.cpp" }
 
+	links "gKit"
+
 project "tuto_bvh_simple"
 	kind "ConsoleApp"
-	files { "src/tuto_bvh_simple.bvh" }
+	files { "src/tuto_bvh_simple.cpp" }
+
+	links "gKit"
