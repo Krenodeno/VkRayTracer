@@ -119,18 +119,13 @@ int main( const int argc, const char **argv )
 		fiboDistribution.push_back(dir);
 	}
 
-	// parcourir tous les pixels de l'image
-	// en parallele avec openMP, un thread par bloc de 16 lignes
-#pragma omp parallel for schedule(dynamic, 16)
-	for (int py = 0; py < image.height(); py++)
-	{
-
-		const int dirs = directionCount;
-
-		for (int px = 0; px < image.width(); px++)
-		{
+	std::vector<Ray> rays;
+	rays.reserve(image.height() * image.width());
+	// Générer les rayons
+	for (int py = 0; py < image.height(); py++) {
+		for (int px = 0; px < image.width(); px++) {
 			// generer le rayon pour le pixel (x, y)
-			float x = px + .5f;		  // centre du pixel
+			float x = px + .5f;		// centre du pixel
 			float y = py + .5f;
 
 			Point o = camera.position();	// origine
@@ -140,8 +135,20 @@ int main( const int argc, const char **argv )
 			camera.frame(image.width(), image.height(), 1, fov, d1, dx1, dy1);
 			Point e = d1 + x*dx1 + y*dy1;	// extremite
 
-			// calculer les intersections
-			Ray ray(o, e);
+			rays.push_back(Ray(o, e));
+		}
+	}
+
+	// Calculer les intersections
+	// parcourir tous les pixels de l'image
+	// en parallele avec openMP, un thread par bloc de 16 lignes
+#pragma omp parallel for schedule(dynamic, 16)
+	for (int py = 0; py < image.height(); py++) {
+		const int dirs = directionCount;
+		for (int px = 0; px < image.width(); px++) {
+
+			int index = px + py * image.width();
+			Ray ray = rays[index];
 			if (Hit hit = bvh.intersect(ray))
 			{
 				// recupere les donnees sur l'intersection
