@@ -18,27 +18,125 @@
 
 #include "ComputeApp.hpp"
 
-struct BBox {
-	vec3 min;
-	vec3 max;
+#define GPU_COMPUTE 0
+
+struct TriangleGPU {
+	vec4 positions[3];
 };
 
-struct BNode {
+struct BNodeGPU {
 	vec3 pmin;
-	int left;
+	int next;
 	vec3 pmax;
-	int right;
+	int skip;
+
+	bool leaf() { return next < 0; }
+
+	bool node() { return !leaf(); }
+
+	int triangle() { assert(leaf()); return -(next-1); }
+
 };
 
-struct Ray {
+struct RayGPU {
 	vec3 origin;
-	vec3 direction;
+	alignas(16) vec3 direction;
 	float tmax;
 };
 
-struct Hit {
+struct HitGPU {
 	int id;
 	float t, u, v;
+};
+
+
+std::vector<BNodeGPU> transform(const BVH& bvh) {
+
+	assert(!bvh.nodes[bvh.root].leaf());
+
+	std::vector<BNodeGPU> remap;
+	remap.reserve(bvh.nodes.size());
+	std::vector<int> stackG;
+	int current = 0;	// current node in the remapped bvh
+
+	int id = bvh.root;	// current node in the original bvh
+	bool cont = true;
+
+	std::vector<int> stack;
+	stack.reserve(bvh.nodes.size());
+
+	// First step : root
+	{
+		const Node& node = bvh.nodes[bvh.root];
+		BNodeGPU root;
+		root.pmin = vec3(node.bounds.pmin.x, node.bounds.pmin.y, node.bounds.pmin.z);
+		root.pmax = vec3(node.bounds.pmax.x, node.bounds.pmax.y, node.bounds.pmax.z);
+		root.skip = 0;
+		root.next = current + 1;	// doesn't work is root is a leaf
+
+		id = node.left;
+		stackG.push_back(current++);
+		stack.push_back(bvh.root);
+		remap.push_back(std::move(root));
+	}
+
+	while (cont) {
+		const Node& node = bvh.nodes[id];
+		{
+			BNodeGPU res;
+			res.pmin = vec3(node.bounds.pmin.x, node.bounds.pmin.y, node.bounds.pmin.z);
+			res.pmax = vec3(node.bounds.pmax.x, node.bounds.pmax.y, node.bounds.pmax.z);
+
+			if (node.leaf()) {
+				res.next = -(node.begin() +1);	// Triangle index
+				if (bvh.nodes[stack.back()].left == id)
+					res.skip = remap.size() + 1;	// brother of a leaf is next
+			}
+			else
+				res.next = current + 1;
+
+			remap.push_back(res);
+		}
+
+		// tree walking
+		if (node.leaf()) {
+			int parent = id;
+			// go back in the tree until there is a right child node not visited
+			while (bvh.nodes[stack.back()].right == parent) {
+
+				// write skip as it is now knowable
+				remap[current].skip = remap.size();
+
+				// end of the loop : everything have been visited
+				if (stack.empty())
+					break;
+				// or not : continue to go up
+				parent = stack.back();
+				stack.pop_back();
+				current = stackG.back();
+				stackG.pop_back();
+			}
+			id = bvh.nodes[stack.back()].right;
+			current = remap.size();
+		}
+		else {
+			stack.push_back(id);
+			id = node.left;
+			stackG.push_back(current++);
+		}
+
+		// end of the loop
+		if (stack.empty())
+			cont = false;
+	}
+
+	// little cleanup : set node.skip to zero if it is set to bvh.size()
+	for (auto node : remap) {
+		if (node.skip == remap.size())
+			node.skip = 0;
+	}
+
+	return remap;
 }
 
 
@@ -68,6 +166,15 @@ void repere( const Vector &n, Vector &b1, Vector &b2 )
 	const float b = n.x * n.y * a;
 	b1 = Vector(1.0f + sign * n.x * n.x * a, sign * b, -sign * n.x);
 	b2 = Vector(b, sign + n.y * n.y * a, -n.y);
+}
+
+
+void fillVertexBuffer(ComputeApp& compute, uint32_t bufIndex, const Mesh& mesh) {
+	std::vector<vec3> positions;
+	for (int i = 0; i < mesh.index_count(); i++) {
+		positions.push_back(mesh.positions()[mesh.indices()[i]]);
+	}
+	compute.fillBuffer(bufIndex, positions.data(), positions.size() * sizeof(positions[0]));
 }
 
 
@@ -128,17 +235,28 @@ int main( const int argc, const char **argv )
 	Transform projection = camera.projection(image.width(), image.height(), fov);
 
 	// Créer le pipeline compute
-	ComputeApp compute(image.width(), image.height());
+	ComputeApp compute();
 
+	// Transformer l'arbre pour le parcourir sur GPU
+	// l'id 0 est la racine
+	std::vector<BNodeGPU> pbvh = transform(bvh);
+
+
+#if GPU_COMPUTE
 	// La taille des buffers est en octets
-	// Géométrie : Vertices & Indices
-	//compute.addBuffer();
+	// Copie sur le GPU
+	// Géométrie : Vertices
+	uint32_t vertexBufferSize = mesh.index_count() * sizeof(mesh.positions()[0]);
+	compute.addBuffer(vertexBufferSize);
+	fillVertexBuffer(compute, 0);
 	// BVH
-	//compute.addBuffer();
+	compute.addBuffer();
+	compute.fillBuffer(1, );
 	// Rayons
-	//compute.addBuffer();
+	compute.addBuffer();
 	// Hits
-	//compute.addBuffer();
+	compute.addBuffer();
+#endif
 
 	auto cpu_start = std::chrono::high_resolution_clock::now();
 

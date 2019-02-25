@@ -40,8 +40,6 @@ project "GPURayTracing"
 	kind "ConsoleApp"
 	files { "src/ComputeApp.hpp", "src/ComputeApp.cpp", "src/computeRayTracing.cpp" }
 
-	defines "VK_NO_PROTOTYPE"
-
 	links { "gKit", "vulkan" }
 
 project "ray_tuto"

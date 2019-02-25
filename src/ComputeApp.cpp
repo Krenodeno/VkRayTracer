@@ -30,11 +30,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 	return VK_FALSE;
 }
 
-ComputeApp::ComputeApp() : width(1024), height(768) {
-
-}
-
-ComputeApp::ComputeApp(int im_width, int im_height) : width(im_width), height(im_height) {
+ComputeApp::ComputeApp() {
 
 }
 
@@ -224,23 +220,18 @@ void ComputeApp::createBuffers() {
 }
 
 void ComputeApp::createDescriptorSetLayout() {
-	vk::DescriptorSetLayoutBinding computeBinding;
-	computeBinding.binding = 0;
-	computeBinding.descriptorType = vk::DescriptorType::eStorageBuffer;
-	computeBinding.descriptorCount = 1;
-	computeBinding.stageFlags = vk::ShaderStageFlagBits::eCompute;
+	std::vector<vk::DescriptorSetLayoutBinding> computeBindings(buffers.size());
 
-	vk::DescriptorSetLayoutBinding uniformBinding;
-	uniformBinding.binding = 1;
-	uniformBinding.descriptorType = vk::DescriptorType::eUniformBuffer;
-	uniformBinding.descriptorCount = 1;
-	uniformBinding.stageFlags = vk::ShaderStageFlagBits::eCompute;
-
-	vk::DescriptorSetLayoutBinding bindings[] = {computeBinding, uniformBinding};
+	for (int i = 0; i < computeBindings.size(); i++) {
+		computeBindings[i].binding = i;
+		computeBindings[i].descriptorType = vk::DescriptorType::eStorageBuffer;
+		computeBindings[i].descriptorCount = 1;
+		computeBindings[i].stageFlags = vk::ShaderStageFlagBits::eCompute;
+	}
 
 	vk::DescriptorSetLayoutCreateInfo createInfo;
-	createInfo.bindingCount = 2;
-	createInfo.pBindings = bindings;
+	createInfo.bindingCount = computeBindings.size();
+	createInfo.pBindings = computeBindings.data();
 
 	descriptorSetLayout = device.createDescriptorSetLayout(createInfo);
 }
@@ -269,13 +260,13 @@ void ComputeApp::createDescriptorSet() {
 	// Connect buffers with descriptor
 	std::vector<vk::DescriptorBufferInfo> bufferInfos(buffers.size());
 	std::vector<vk::WriteDescriptorSet> writeDescriptorSets(buffers.size());
-	for (int i = 0; i < buffers.size(); i ++) {
+	for (int i = 0; i < buffers.size(); i++) {
 		bufferInfos[i].buffer = buffers[i];
 		bufferInfos[i].offset = 0;
 		bufferInfos[i].range = bufferSizes[i];
 
 		writeDescriptorSets[i].dstSet = descriptorSets[0];
-		writeDescriptorSets[i].dstBinding = 0;
+		writeDescriptorSets[i].dstBinding = i;
 		writeDescriptorSets[i].descriptorCount = 1;
 		writeDescriptorSets[i].descriptorType = vk::DescriptorType::eStorageBuffer;
 		writeDescriptorSets[i].pBufferInfo = &bufferInfos[i];
@@ -320,7 +311,6 @@ void ComputeApp::createComputePipeline() {
 void ComputeApp::createCommandeBuffer() {
 	auto queueFamilyIndex = findQueueFamilies(physicalDevice);
 
-
 	// Create Command Pool
 	vk::CommandPoolCreateInfo poolCreateInfo;
 	poolCreateInfo.queueFamilyIndex = static_cast<uint32_t>(queueFamilyIndex.computeFamily);
@@ -341,14 +331,8 @@ void ComputeApp::createCommandeBuffer() {
 	commandBuffer.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline);
 	commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipelineLayout, /*first set*/0, descriptorSets, nullptr);
 
-
-	uint32_t dx = static_cast<uint32_t>(ceil(width / WORKGROUP_SIZE));
-	uint32_t dy = static_cast<uint32_t>(ceil(height / WORKGROUP_SIZE));
-
-	std::cout << "Dispatch x = " << dx << ", y = " << dy << "\n";
-
 	// run the compute shader
-	commandBuffer.dispatch(dx, dy, 1);
+	commandBuffer.dispatch(256, 1, 1);
 
 	commandBuffer.end();
 }

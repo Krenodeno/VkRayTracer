@@ -48,7 +48,6 @@ const int WORKGROUP_SIZE = 32; // Workgroup size in compute shader.
 class ComputeApp {
 public:
 	ComputeApp();
-	ComputeApp(int im_width, int im_height);
 
 	~ComputeApp();
 
@@ -67,8 +66,6 @@ public:
 	}
 
 private:
-
-	int width, height;
 
 	struct QueueFamilyIndices;
 
