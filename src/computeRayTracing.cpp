@@ -20,8 +20,55 @@
 
 #define GPU_COMPUTE 0
 
+struct RayGPU {
+	alignas(16) vec3 origin;
+	alignas(16) vec3 direction;
+	float tmax;
+
+	RayGPU(const Point& o, const Point& e) : origin(o), direction(Vector(o, e)), tmax(1.f) {}
+	RayGPU(const Point& o, const Vector& d) : origin(o), direction(d), tmax(std::numeric_limits<float>::max()) {}
+};
+
+struct HitGPU {
+	int id;
+	float t, u, v;
+
+	HitGPU() : id(-1), t(0.f), u(0.f), v(0.f) {}
+
+	HitGPU(int id, float t, float u, float v) : id(id), t(t), u(u), v(v) {}
+
+	operator bool() { return id != -1; }
+};
+
 struct TriangleGPU {
-	vec4 positions[3];
+	alignas(16) vec3 pos;
+	alignas(16) vec3 e1;
+	alignas(16) vec3 e2;
+	int id;
+
+	TriangleGPU(Triangle tri) : pos(tri.p), e1(tri.e1), e2(tri.e2), id(tri.id) {}
+
+	/* Ray - Triangle Intersection */
+	HitGPU intersect( const RayGPU &ray, const float htmax ) const
+	{
+		Vector pvec = cross(Vector(ray.direction), Vector(e2));
+		float det = dot(e1, pvec);
+
+		float inv_det = 1 / det;
+		Vector tvec(pos, ray.origin);
+
+		float u = dot(tvec, pvec) * inv_det;
+		if (u < 0 || u > 1) return HitGPU();
+
+		Vector qvec = cross(tvec, e1);
+		float v = dot(ray.direction, qvec) * inv_det;
+		if (v < 0 || u + v > 1) return HitGPU();
+
+		float t = dot(e2, qvec) * inv_det;
+		if (t > htmax || t < 0) return HitGPU();
+
+		return HitGPU(id, t, u, v);	// p(u, v)= (1 - u - v) * a + u * b + v * c
+	}
 };
 
 struct BNodeGPU {
@@ -30,23 +77,32 @@ struct BNodeGPU {
 	vec3 pmax;
 	int skip;
 
-	bool leaf() { return next < 0; }
+	bool leaf() const { return next < 0; }
 
-	bool node() { return !leaf(); }
+	bool node() const { return !leaf(); }
+	/** First triangle of the leaf */
+	int begin() const { assert(leaf()); return ( -next >> 4 ); }
+	/** Last triangle of the leaf */
+	int end() const { assert(leaf()); return ( (-next >> 4) + (-next & 0xF) ); }
 
-	int triangle() { assert(leaf()); return -(next-1); }
+	/* Ray - Box Intersection */
+	NodeHit intersect( const RayGPU& ray, const Vector& invd, const float htmax ) const
+	{
+		vec3 rmin = pmin;
+		vec3 rmax = pmax;
+		if(ray.direction.x < 0) std::swap(rmin.x, rmax.x);
+		if(ray.direction.y < 0) std::swap(rmin.y, rmax.y);
+		if(ray.direction.z < 0) std::swap(rmin.z, rmax.z);
+		Vector dmin = (Point(rmin) - Point(ray.origin)) * invd;
+		Vector dmax = (Point(rmax) - Point(ray.origin)) * invd;
 
-};
+		float tmin = std::max(dmin.z, std::max(dmin.y, std::max(dmin.x, 0.f)));
+		float tmax = std::min(dmax.z, std::min(dmax.y, std::min(dmax.x, htmax)));
+		return NodeHit(tmin, tmax);
+	}
 
-struct RayGPU {
-	vec3 origin;
-	alignas(16) vec3 direction;
-	float tmax;
-};
+	BNodeGPU() : skip(-1) {}
 
-struct HitGPU {
-	int id;
-	float t, u, v;
 };
 
 
@@ -71,7 +127,7 @@ std::vector<BNodeGPU> transform(const BVH& bvh) {
 		BNodeGPU root;
 		root.pmin = vec3(node.bounds.pmin.x, node.bounds.pmin.y, node.bounds.pmin.z);
 		root.pmax = vec3(node.bounds.pmax.x, node.bounds.pmax.y, node.bounds.pmax.z);
-		root.skip = 0;
+		root.skip = -1;
 		root.next = current + 1;	// doesn't work is root is a leaf
 
 		id = node.left;
@@ -88,13 +144,15 @@ std::vector<BNodeGPU> transform(const BVH& bvh) {
 			res.pmax = vec3(node.bounds.pmax.x, node.bounds.pmax.y, node.bounds.pmax.z);
 
 			if (node.leaf()) {
-				res.next = -(node.begin() +1);	// Triangle index
+				res.next = -( (node.begin() << 4) | node.n() );	// Triangle indices (the offset must be less than 16)
 				if (bvh.nodes[stack.back()].left == id)
-					res.skip = remap.size() + 1;	// brother of a leaf is next
+					res.skip = remap.size() + 1;	// brother of a leaf is next index
+				assert(res.leaf());
 			}
-			else
+			else {
 				res.next = current + 1;
-
+				assert(res.node());
+			}
 			remap.push_back(res);
 		}
 
@@ -133,14 +191,43 @@ std::vector<BNodeGPU> transform(const BVH& bvh) {
 	// little cleanup : set node.skip to zero if it is set to bvh.size()
 	for (auto node : remap) {
 		if (node.skip == remap.size())
-			node.skip = 0;
+			node.skip = -1;
 	}
 
 	return remap;
 }
 
 
-Vector normal( const Hit& hit, const TriangleData& triangle )
+HitGPU intersect(const std::vector<BNodeGPU>& pbvh, const std::vector<TriangleGPU>& tris, RayGPU ray) {
+	assert(!pbvh.empty());
+
+	Vector invd = Vector(1.f / ray.direction.x, 1.f / ray.direction.y, 1.f / ray.direction.z);
+
+	int id = 0; // 0 is root, but in any node, it means no next node
+	do {
+		const BNodeGPU& node = pbvh[id];
+		if (node.leaf()) {
+			for (int i = node.begin(); i != node.end(); i++) {
+				HitGPU hit = tris[i].intersect(ray, ray.tmax);
+				if (hit)
+					return hit;	// intersection is found
+			}
+			// No intersection
+			id = node.skip;
+		}
+		else {
+			if (node.intersect(ray, invd, ray.tmax))
+				id = node.next;
+			else
+				id = node.skip;
+		}
+	} while (id > -1);
+	// No intersection
+	return HitGPU();
+}
+
+
+Vector normal( const HitGPU& hit, const TriangleData& triangle )
 {
 	return normalize((1 - hit.u - hit.v) * Vector(triangle.na) + hit.u * Vector(triangle.nb) + hit.v * Vector(triangle.nc));
 }
@@ -152,9 +239,9 @@ Point point( const Hit& hit, const TriangleData& triangle )
 }
 
 
-Point point( const Hit& hit, const Ray& ray )
+Point point( const HitGPU& hit, const RayGPU& ray )
 {
-	return ray.o + hit.t * ray.d;
+	return Point(ray.origin) + hit.t * Vector(ray.direction);
 }
 
 
@@ -241,6 +328,14 @@ int main( const int argc, const char **argv )
 	// l'id 0 est la racine
 	std::vector<BNodeGPU> pbvh = transform(bvh);
 
+	std::vector<TriangleGPU> triangles;
+	for (const auto& tri : bvh.triangles) {
+		triangles.emplace_back(tri);
+	}
+
+	assert(!pbvh.empty());
+	assert(!triangles.empty());
+
 
 #if GPU_COMPUTE
 	// La taille des buffers est en octets
@@ -250,8 +345,9 @@ int main( const int argc, const char **argv )
 	compute.addBuffer(vertexBufferSize);
 	fillVertexBuffer(compute, 0);
 	// BVH
-	compute.addBuffer();
-	compute.fillBuffer(1, );
+	uint32_t bvhBufferSize = pbvh.size() * sizeof(pbvh[0]);
+	compute.addBuffer(bvhBufferSize);
+	compute.fillBuffer(1, pbvh.data(), bvhBufferSize);
 	// Rayons
 	compute.addBuffer();
 	// Hits
@@ -260,6 +356,7 @@ int main( const int argc, const char **argv )
 
 	auto cpu_start = std::chrono::high_resolution_clock::now();
 
+	std::cout << "Generating Fibonacci Distribution\n";
 	// Générer la spirale de Fibonacci
 	std::vector<Vector> fiboDistribution;
 	// phi = sqrt(5) + 1 / 2
@@ -275,7 +372,8 @@ int main( const int argc, const char **argv )
 		fiboDistribution.push_back(dir);
 	}
 
-	std::vector<Ray> rays;
+	std::cout << "Generating firsts Rays directions\n";
+	std::vector<RayGPU> rays;
 	rays.reserve(image.height() * image.width());
 	// Générer les rayons
 	for (int py = 0; py < image.height(); py++) {
@@ -291,10 +389,15 @@ int main( const int argc, const char **argv )
 			camera.frame(image.width(), image.height(), 1, fov, d1, dx1, dy1);
 			Point e = d1 + x*dx1 + y*dy1;	// extremite
 
-			rays.push_back(Ray(o, e));
+			rays.push_back(RayGPU(o, e));
 		}
 	}
 
+#if GPU_COMPUTE
+	fillBuffer();
+#endif
+
+	std::cout << "Intersecting...\n";
 	// Calculer les intersections
 	// parcourir tous les pixels de l'image
 	// en parallele avec openMP, un thread par bloc de 16 lignes
@@ -304,14 +407,14 @@ int main( const int argc, const char **argv )
 		for (int px = 0; px < image.width(); px++) {
 
 			int index = px + py * image.width();
-			Ray ray = rays[index];
-			if (Hit hit = bvh.intersect(ray))
+			RayGPU ray = rays[index];
+			if (HitGPU hit = intersect(pbvh, triangles, ray))
 			{
 				// recupere les donnees sur l'intersection
-				TriangleData triangle = mesh.triangle(hit.triangle_id);
+				TriangleData triangle = mesh.triangle(hit.id);
 				Point p = point(hit, ray);			// point d'intersection
 				Vector pn = normal(hit, triangle);	// normale interpolee du triangle au point d'intersection
-				if(dot(pn, ray.d) > 0)				// retourne la normale vers l'origine du rayon
+				if(dot(pn, ray.direction) > 0)				// retourne la normale vers l'origine du rayon
 					pn = -pn;
 
 				float sum = 0.f;
@@ -332,8 +435,8 @@ int main( const int argc, const char **argv )
 				}
 
 				// couleur du pixel
-				float cos_theta = dot(normalize(pn), normalize(-ray.d));
-				Color pColor = std::max(0.f, cos_theta) * mesh.mesh_material(mesh.materials()[hit.triangle_id]).diffuse;
+				float cos_theta = dot(normalize(pn), normalize(-ray.direction));
+				Color pColor = std::max(0.f, cos_theta) * mesh.mesh_material(mesh.materials()[hit.id]).diffuse;
 				Color color = 1.f/(float)directionCount * sum * pColor;
 
 				image(px, py) = Color(color, 1);
