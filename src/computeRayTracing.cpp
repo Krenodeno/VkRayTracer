@@ -19,7 +19,7 @@
 #include "ComputeApp.hpp"
 #include "GPUStructs.h"
 
-#define GPU_COMPUTE 0
+#define GPU_COMPUTE 1
 
 
 Vector normal( const HitGPU& hit, const TriangleData& triangle )
@@ -116,8 +116,12 @@ int main( const int argc, const char **argv )
 	Transform view = camera.view();
 	Transform projection = camera.projection(image.width(), image.height(), fov);
 
+#if GPU_COMPUTE
 	// Créer le pipeline compute
-	ComputeApp compute();
+	ComputeApp compute;
+
+	compute.setWorkgroupSize(image.width() * image.height() / WORKGROUP_SIZE);
+#endif
 
 	// Transformer l'arbre pour le parcourir sur GPU
 	// l'id 0 est la racine
@@ -134,19 +138,18 @@ int main( const int argc, const char **argv )
 
 #if GPU_COMPUTE
 	// La taille des buffers est en octets
-	// Copie sur le GPU
-	// Géométrie : Vertices
-	uint32_t vertexBufferSize = mesh.index_count() * sizeof(mesh.positions()[0]);
-	compute.addBuffer(vertexBufferSize);
-	fillVertexBuffer(compute, 0);
+	// Géométrie : Triangles
+	uint64_t triangleBufferSize = triangles.size() * sizeof(triangles[0]);
+	int triangleBuffer = compute.addBuffer(triangleBufferSize);
 	// BVH
-	uint32_t bvhBufferSize = pbvh.size() * sizeof(pbvh[0]);
-	compute.addBuffer(bvhBufferSize);
-	compute.fillBuffer(1, pbvh.data(), bvhBufferSize);
+	uint64_t bvhBufferSize = pbvh.size() * sizeof(pbvh[0]);
+	int bvhBuffer = compute.addBuffer(bvhBufferSize);
 	// Rayons
-	compute.addBuffer();
+	uint64_t rayBufferSize = image.height() * image.width() * sizeof(RayGPU);
+	int rayBuffer = compute.addBuffer(rayBufferSize);
 	// Hits
-	compute.addBuffer();
+	uint64_t hitBufferSize = image.height() * image.width() * sizeof(HitGPU);
+	int hitBuffer = compute.addBuffer(hitBufferSize);
 #endif
 
 	auto cpu_start = std::chrono::high_resolution_clock::now();
@@ -171,6 +174,10 @@ int main( const int argc, const char **argv )
 	std::vector<RayGPU> rays;
 	rays.reserve(image.height() * image.width());
 	// Générer les rayons
+
+	Point d1;
+	Vector dx1, dy1;
+	camera.frame(image.width(), image.height(), 1, fov, d1, dx1, dy1);
 	for (int py = 0; py < image.height(); py++) {
 		for (int px = 0; px < image.width(); px++) {
 			// generer le rayon pour le pixel (x, y)
@@ -178,10 +185,6 @@ int main( const int argc, const char **argv )
 			float y = py + .5f;
 
 			Point o = camera.position();	// origine
-
-			Point d1;
-			Vector dx1, dy1;
-			camera.frame(image.width(), image.height(), 1, fov, d1, dx1, dy1);
 			Point e = d1 + x*dx1 + y*dy1;	// extremite
 
 			rays.push_back(RayGPU(o, e));
@@ -189,8 +192,47 @@ int main( const int argc, const char **argv )
 	}
 
 #if GPU_COMPUTE
-	fillBuffer();
-#endif
+
+	// init vulkan : effectively create buffers
+	compute.init();
+
+	// Fill the buffers
+	compute.fillBuffer(triangleBuffer, triangles.data(), triangleBufferSize);
+	compute.fillBuffer(bvhBuffer, pbvh.data(), bvhBufferSize);
+	compute.fillBuffer(rayBuffer, rays.data(), rayBufferSize);
+
+	// Compute rays
+	auto gpu_start = std::chrono::high_resolution_clock::now();
+	compute.draw();
+	auto gpu_stop = std::chrono::high_resolution_clock::now();
+	int gpu_time = std::chrono::duration_cast<std::chrono::milliseconds>(gpu_stop - gpu_start).count();
+	printf("GPU  %ds %03dms\n", int(gpu_time / 1000), int(gpu_time % 1000));
+
+	// Get data back
+	std::vector<HitGPU> hits = compute.getDataFromBuffer<HitGPU>((uint32_t)hitBuffer, rays.size());
+
+	// Compute hits
+	for (int i = 0; i < hits.size(); i++) {
+		if (HitGPU hit = hits[i]) {
+			TriangleData triangle = mesh.triangle(hit.id);
+			Point p = point(hit, rays[i]);			// point d'intersection
+			Vector pn = normal(hit, triangle);	// normale interpolee du triangle au point d'intersection
+			if(dot(pn, rays[i].direction) > 0)		// retourne la normale vers l'origine du rayon
+				pn = -pn;
+
+			// couleur du pixel
+			float cos_theta = dot(normalize(pn), normalize(-rays[i].direction));
+			Color pColor = std::max(0.f, cos_theta) * mesh.mesh_material(mesh.materials()[hit.id]).diffuse;
+			Color color = pColor;
+
+			int py = i / image.width();
+			int px = i % image.width();
+
+			image(px, py) = Color(color, 1);
+		}
+	}
+
+#else
 
 	std::cout << "Intersecting...\n";
 	// Calculer les intersections
@@ -237,6 +279,8 @@ int main( const int argc, const char **argv )
 			}
 		}
 	}
+
+#endif // GPU_COMPUTE
 
 	auto cpu_stop = std::chrono::high_resolution_clock::now();
 	int cpu_time = std::chrono::duration_cast<std::chrono::milliseconds>(cpu_stop - cpu_start).count();

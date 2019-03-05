@@ -60,11 +60,12 @@ void ComputeApp::draw() {
 	device.destroyFence(fence);
 }
 
-void ComputeApp::addBuffer(uint64_t bufferSize) {
+int ComputeApp::addBuffer(uint64_t bufferSize) {
 	bufferSizes.push_back(bufferSize);
+	return (int)bufferSizes.size() - 1;
 }
 
-void ComputeApp::fillBuffer(uint32_t index, const void* dataToCopy, size_t dataSize) {
+void ComputeApp::fillBuffer(uint32_t index, const void* dataToCopy, uint64_t dataSize) {
 	auto data = device.mapMemory(buffersMemory[index], /*offset*/ 0, dataSize, vk::MemoryMapFlags());
 		std::memcpy(data, dataToCopy, static_cast<size_t>(dataSize));
 	device.unmapMemory(buffersMemory[index]);
@@ -99,7 +100,8 @@ void ComputeApp::cleanup() {
 	// Then destroy Device
 	device.destroy();
 	// destroy debug utils
-	//instance.destroyDebugUtilsMessengerEXT(callback, nullptr, vk::DispatchLoaderDynamic(instance));
+	auto func = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(instance.getProcAddr("vkDestroyDebugUtilsMessengerEXT"));
+	func(instance, static_cast<VkDebugUtilsMessengerEXT>(callback), nullptr);
 	// Finally destroy the instance
 	instance.destroy();
 }
@@ -139,8 +141,11 @@ void ComputeApp::setupDebugCallback() {
 	createInfo.pfnUserCallback = debugCallback;
 	createInfo.pUserData = nullptr;
 
-	//vk::DispatchLoaderDynamic didy(instance);
-	//callback = instance.createDebugUtilsMessengerEXT(createInfo, nullptr, didy);
+	auto func = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(instance.getProcAddr("vkCreateDebugUtilsMessengerEXT"));
+	VkDebugUtilsMessengerEXT tmp;
+	auto info = (VkDebugUtilsMessengerCreateInfoEXT)createInfo;
+	func(instance, &info, nullptr, &tmp);
+	callback = tmp;
 }
 
 void ComputeApp::pickPhysicalDevice() {
@@ -156,6 +161,18 @@ void ComputeApp::pickPhysicalDevice() {
 			break;
 		}
 	}
+
+	auto properties = physicalDevice.getProperties();
+	auto deviceLimits = properties.limits;
+
+	std::cout << "Limits : Max Compute Workgroup Count : x=" << deviceLimits.maxComputeWorkGroupCount[0];
+	std::cout << ", y=" << deviceLimits.maxComputeWorkGroupCount[1];
+	std::cout << ", z=" << deviceLimits.maxComputeWorkGroupCount[2];
+	std::cout << "\nMax Compute Workgroup Invocations : " << deviceLimits.maxComputeWorkGroupInvocations;
+	std::cout << "\nMax Compute Workgroup Size : x=" << deviceLimits.maxComputeWorkGroupSize[0];
+	std::cout << ", y=" << deviceLimits.maxComputeWorkGroupSize[1];
+	std::cout << ", z=" << deviceLimits.maxComputeWorkGroupSize[2];
+	std::cout << std::endl;
 
 	if (!physicalDevice)
 		throw std::runtime_error("Failed to find a suitable GPU!");
@@ -280,7 +297,7 @@ void ComputeApp::createComputePipeline() {
 
 	// Create Shader
 	uint32_t filelength;
-	std::vector<uint32_t> code = readShaderFile(filelength, "shaders/comp.spv");
+	std::vector<uint32_t> code = readShaderFile(filelength, "resources/comp.spv");
 	vk::ShaderModuleCreateInfo shaderCreateInfo;
 	shaderCreateInfo.codeSize = filelength;
 	shaderCreateInfo.pCode = code.data();
@@ -332,7 +349,7 @@ void ComputeApp::createCommandeBuffer() {
 	commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eCompute, pipelineLayout, /*first set*/0, descriptorSets, nullptr);
 
 	// run the compute shader
-	commandBuffer.dispatch(256, 1, 1);
+	commandBuffer.dispatch(workgroupSize, 1, 1);
 
 	commandBuffer.end();
 }

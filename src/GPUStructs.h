@@ -19,11 +19,10 @@ struct RayGPU {
 struct HitGPU {
 	int id;
 	float t, u, v;
-	int intersectCount;
 
-	HitGPU() : id(-1), t(0.f), u(0.f), v(0.f), intersectCount(0) {}
+	HitGPU() : id(-1), t(0.f), u(0.f), v(0.f) {}
 
-	HitGPU(int id, float t, float u, float v) : id(id), t(t), u(u), v(v), intersectCount(0) {}
+	HitGPU(int id, float t, float u, float v) : id(id), t(t), u(u), v(v) {}
 
 	operator bool() { return id != -1; }
 };
@@ -194,7 +193,6 @@ HitGPU intersect(const std::vector<BNodeGPU>& pbvh, const std::vector<TriangleGP
 
 	Vector invd = Vector(1.f / ray.direction.x, 1.f / ray.direction.y, 1.f / ray.direction.z);
 
-	int intersectCount = 0;
 	int id = 0;
 	HitGPU hit;
 	hit.t = ray.tmax;
@@ -208,7 +206,6 @@ HitGPU intersect(const std::vector<BNodeGPU>& pbvh, const std::vector<TriangleGP
 				HitGPU h = tris[i].intersect(ray, hit.t);
 				if (h) {
 					hit = h;
-					hit.intersectCount = intersectCount;
 				}
 			}
 			id = node.skip;
@@ -216,7 +213,6 @@ HitGPU intersect(const std::vector<BNodeGPU>& pbvh, const std::vector<TriangleGP
 		else {
 			if (node.intersect(ray, invd, hit.t)) {
 				id = node.next;
-				intersectCount++;
 			}
 			else {
 				id = node.skip;

@@ -53,14 +53,28 @@ public:
 
 	void run();
 
-	void addBuffer(uint64_t bufferSize);
-	void fillBuffer(uint32_t index, const void* data, size_t dataSize);
+	void init();
+
+	void draw();
+
+	/**
+	 * Add a buffer of bufferSize size to be created at init and return its index
+	 */
+	int addBuffer(uint64_t bufferSize);
+
+	/**
+	 * Fill a buffer with data
+	 */
+	void fillBuffer(uint32_t index, const void* data, uint64_t dataSize);
+
+	void setWorkgroupSize(uint32_t size) { workgroupSize = size; }
 
 	template<typename T>
-	std::vector<T> getDataFromBuffer(uint32_t index, size_t dataSize) {
+	std::vector<T> getDataFromBuffer(uint32_t index, uint64_t elementCount) {
+		uint64_t dataSize = elementCount * sizeof(T);
 		// Get data back from Device Memory
 		auto data = static_cast<T*>(device.mapMemory(buffersMemory[index], /*offset*/ 0, dataSize));
-		std::vector<T> res(data, data + dataSize);
+		std::vector<T> res(data, data + elementCount);
 		device.unmapMemory(buffersMemory[index]);
 		return res;
 	}
@@ -68,6 +82,8 @@ public:
 private:
 
 	struct QueueFamilyIndices;
+
+	uint32_t workgroupSize;
 
 	vk::Instance instance;
 	vk::DebugUtilsMessengerEXT callback;
@@ -91,10 +107,6 @@ private:
 	std::vector<vk::Buffer> buffers;
 	std::vector<vk::DeviceMemory> buffersMemory;
 	std::vector<uint64_t> bufferSizes;
-
-	void init();
-
-	void draw();
 
 	void cleanup();
 

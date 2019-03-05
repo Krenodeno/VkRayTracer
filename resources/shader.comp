@@ -1,59 +1,179 @@
 #version 450
-#extension GL_ARB_separate_shader_objects : enable
+
+/**
+ * Structures Definitions
+ */
+
+struct Triangle {
+	vec3 pos;
+	vec3 e1;
+	vec3 e2;
+	int id;
+	// Caution: Padding between each vec3 in the array
+}; // aligned to 16 bytes
+
+struct BNode {
+	vec3 pmin;
+	int next;
+	vec3 pmax;
+	int skip;
+};
+
+struct Ray {
+	vec3 origin;
+	vec3 direction;
+	float tmax;
+}; // = 8 floats in memory
+
+struct Hit {
+	uint id;		// Triangle ID
+	float t, u, v;	// hit coordinates in triangle coordinates system
+};
+
+struct NodeHit {
+	float tmin, tmax;
+};
+
+/**
+ * Structure functions
+ */
+
+bool isHit(Hit hit) {
+	return hit.id != -1;
+}
+
+
+bool isHit(NodeHit hit) {
+	return hit.tmin <= hit.tmax;
+}
+
+
+bool leaf(BNode node) {
+	return node.next < 0;
+}
+
+int begin(BNode node) {
+	return -node.next >> 4;
+}
+
+int end(BNode node) {
+	return (-node.next >> 4) + (-node.next & 0xF);
+}
+
+
+Hit intersect(Triangle triangle, Ray ray, float htmax) {
+	vec3 pvec = cross(ray.direction, triangle.e2);
+	float det = dot(triangle.e1, pvec);
+
+	float inv_det = 1.0 / det;
+	vec3 tvec = ray.origin - triangle.pos;
+
+	float u = dot(tvec, pvec) * inv_det;
+	if (u < 0 || u > 1) return Hit(-1, 0.0, 0.0, 0.0);
+
+	vec3 qvec = cross(tvec, triangle.e1);
+	float v = dot(ray.direction, qvec) * inv_det;
+	if (v < 0 || u + v > 1) return Hit(-1, 0.0, 0.0, 0.0);
+
+	float t = dot(triangle.e2, qvec) * inv_det;
+	if (t > htmax || t < 0) return Hit(-1, 0.0, 0.0, 0.0);
+
+	return Hit(triangle.id, t, u, v);	// p(u, v)= (1 - u - v) * a + u * b + v * c
+}
+
+void swap(inout float a, inout float b) {
+	float tmp = a;
+	a = b;
+	b = tmp;
+}
+
+NodeHit intersect(BNode node, Ray ray, vec3 invd, float htmax) {
+	vec3 rmin = node.pmin;
+	vec3 rmax = node.pmax;
+	if (ray.direction.x < 0) swap(rmin.x, rmax.x);
+	if (ray.direction.y < 0) swap(rmin.y, rmax.y);
+	if (ray.direction.z < 0) swap(rmin.z, rmax.z);
+	vec3 dmin = (rmin - ray.origin) * invd;
+	vec3 dmax = (rmax - ray.origin) * invd;
+
+	float tmin = max(dmin.z, max(dmin.y, max(dmin.x, 0.0)));
+	float tmax = max(dmax.z, max(dmax.y, max(dmax.x, htmax)));
+
+	return NodeHit(tmin, tmax);
+}
+
+
+/**
+ * Buffers Declarations
+ */
+
+layout (std430, binding = 0) readonly buffer triangleData {
+	Triangle triangles[];
+};
+
+layout (std430, binding = 1) readonly buffer bvhData {
+	BNode nodes[];
+};
+
+layout (std430, binding = 2) readonly buffer raysData {
+	Ray rays[];
+};
+
+layout (std430, binding = 3) writeonly buffer hitsData {
+	Hit hits[];
+};
+
+#define WIDTH 1024
+#define HEIGHT 640
 
 #define WORKGROUP_SIZE 32
-layout (local_size_x = WORKGROUP_SIZE, local_size_y = WORKGROUP_SIZE, local_size_z = 1 ) in;
+layout (local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1 ) in;
 
-struct Pixel{
-	vec4 value;
-};
+/**
+ * Intersection loop for one ray : tree walking
+ */
+Hit intersect(Ray ray) {
+	vec3 invd = vec3(1.0 / ray.direction.x, 1.0 / ray.direction.y, 1.0 / ray.direction.z);
 
-layout(std430, binding = 0) buffer buf
-{
-	Pixel imageData[];
-};
+	int id = 0;
+	Hit hit = Hit(-1, ray.tmax, 0.0, 0.0);
 
-layout (binding = 1) uniform UniformBufferObject {
-	uint width;
-	uint height;
-} ubo;
+	while(id != -1) {
+		BNode node = nodes[id];
+		if (leaf(node)) {
+			for (int i = begin(node); i != end(node); i++) {
+				Hit h = intersect(triangles[i], ray, hit.t);
+				if (isHit(h)) hit = h;
+			}
+			id = node.skip;
+		}
+		else {
+			if (isHit(intersect(node, ray, invd, hit.t))) {
+				id = node.next;
+			}
+			else {
+				id = node.skip;
+			}
+		}
+	}
 
+	return hit;
+}
+
+/**
+ * Main
+ */
 void main() {
 
 	/*
 	In order to fit the work into workgroups, some unnecessary threads are launched.
 	We terminate those threads here.
 	*/
-	if(gl_GlobalInvocationID.x >= ubo.width || gl_GlobalInvocationID.y >= ubo.height)
+	if (gl_GlobalInvocationID.x >= WIDTH * HEIGHT)
 		return;
 
-	float x = float(gl_GlobalInvocationID.x) / float(ubo.width);
-	float y = float(gl_GlobalInvocationID.y) / float(ubo.height);
+	Ray ray = rays[gl_GlobalInvocationID.x];
 
-	/*
-	What follows is code for rendering the mandelbrot set.
-	*/
-	vec2 uv = vec2(x,y);
-	float n = 0.0;
-	vec2 c = vec2(-.445, 0.0) +  (uv - 0.5)*(2.0+ 1.7*0.2  ),
-	z = vec2(0.0);
-	const int M = 128;
-	for (int i = 0; i < M; i++)
-	{
-		z = vec2(z.x*z.x - z.y*z.y, 2.*z.x*z.y) + c;
-		if (dot(z, z) > 2) break;
-		n++;
-	}
+	hits[gl_GlobalInvocationID.x] = intersect(ray);
 
-	// we use a simple cosine palette to determine color:
-	// http://iquilezles.org/www/articles/palettes/palettes.htm
-	float t = float(n) / float(M);
-	vec3 d = vec3(0.3, 0.3 ,0.5);
-	vec3 e = vec3(-0.2, -0.3 ,-0.5);
-	vec3 f = vec3(2.1, 2.0, 3.0);
-	vec3 g = vec3(0.0, 0.1, 0.0);
-	vec4 color = vec4( d + e*cos( 6.28318*(f*t+g) ) , 1.0);
-
-	// store the rendered mandelbrot set into a storage buffer:
-	imageData[(ubo.width * gl_GlobalInvocationID.y) + gl_GlobalInvocationID.x].value = color;
 }
