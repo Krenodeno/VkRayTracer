@@ -390,5 +390,6 @@ uint32_t ComputeApp::findMemoryType(uint32_t memoryTypeBits, vk::MemoryPropertyF
 		)
 			return i;
 	}
-	return -1;
+
+	throw std::runtime_error("Failed to find a suitable memory type!");
 }
