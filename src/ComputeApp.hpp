@@ -121,6 +121,11 @@ private:
 	void createComputePipeline();
 	void createCommandeBuffer();
 
+	vk::CommandBuffer beginSingleTimeCommands();
+	void endSingleTimeCommands(vk::CommandBuffer);
+
+	void copyBuffer(vk::Buffer src, vk::Buffer dst, vk::DeviceSize size);
+
 	bool isDeviceSuitable(vk::PhysicalDevice);
 
 	QueueFamilyIndices findQueueFamilies(vk::PhysicalDevice);

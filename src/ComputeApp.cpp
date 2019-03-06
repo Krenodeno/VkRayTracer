@@ -66,9 +66,19 @@ int ComputeApp::addBuffer(uint64_t bufferSize) {
 }
 
 void ComputeApp::fillBuffer(uint32_t index, const void* dataToCopy, uint64_t dataSize) {
+
+	vk::Buffer stagingBuffer;
+	vk::DeviceMemory stagingBufferMemory;
+	createBuffer(dataSize, vk::BufferUsageFlagBits::eTransferSrc, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent, stagingBuffer, stagingBufferMemory);
+
 	auto data = device.mapMemory(buffersMemory[index], /*offset*/ 0, dataSize, vk::MemoryMapFlags());
 		std::memcpy(data, dataToCopy, static_cast<size_t>(dataSize));
 	device.unmapMemory(buffersMemory[index]);
+
+	copyBuffer(stagingBuffer, buffers[index], dataSize);
+
+	device.freeMemory(stagingBufferMemory);
+	device.destroyBuffer(stagingBuffer);
 }
 
 
@@ -232,7 +242,7 @@ void ComputeApp::createBuffers() {
 	for (int i = 0; i < bufferSizes.size(); i++) {
 		buffers.push_back(vk::Buffer());
 		buffersMemory.push_back(vk::DeviceMemory());
-		createBuffer(bufferSizes[i], vk::BufferUsageFlagBits::eStorageBuffer, vk::MemoryPropertyFlagBits::eHostCoherent | vk::MemoryPropertyFlagBits::eHostVisible, buffers[i], buffersMemory[i]);
+		createBuffer(bufferSizes[i], vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eStorageBuffer, vk::MemoryPropertyFlagBits::eDeviceLocal, buffers[i], buffersMemory[i]);
 	}
 }
 
@@ -353,6 +363,63 @@ void ComputeApp::createCommandeBuffer() {
 
 	commandBuffer.end();
 }
+
+/**
+ * Return a CommandBuffer to record commands to
+ * Require an initialized CommandPool
+ */
+vk::CommandBuffer ComputeApp::beginSingleTimeCommands() {
+
+	assert(commandPool);
+
+	vk::CommandBufferAllocateInfo allocInfo;
+	allocInfo.commandPool = commandPool;
+	allocInfo.level = vk::CommandBufferLevel::ePrimary;
+	allocInfo.commandBufferCount = 1;
+
+	auto commandBuffer = device.allocateCommandBuffers(allocInfo)[0];
+
+	vk::CommandBufferBeginInfo beginInfo;
+	beginInfo.flags = vk::CommandBufferUsageFlagBits::eSimultaneousUse;
+	beginInfo.pInheritanceInfo = nullptr;
+
+	commandBuffer.begin(beginInfo);
+
+	return commandBuffer;
+}
+
+/**
+ * End, submit and free the CommandBuffer
+ */
+void ComputeApp::endSingleTimeCommands(vk::CommandBuffer commandBuffer) {
+
+	assert(commandBuffer);
+
+	commandBuffer.end();
+
+	vk::SubmitInfo submitInfo;
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &commandBuffer;
+
+	computeQueue.submit(submitInfo, vk::Fence());
+	computeQueue.waitIdle();
+
+	device.freeCommandBuffers(commandPool, commandBuffer);
+}
+
+void ComputeApp::copyBuffer(vk::Buffer src, vk::Buffer dst, vk::DeviceSize size) {
+	auto commandBuffer = beginSingleTimeCommands();
+
+	vk::BufferCopy copyRegion;
+	copyRegion.srcOffset = 0;
+	copyRegion.dstOffset = 0;
+	copyRegion.size = size;
+	commandBuffer.copyBuffer(src, dst, copyRegion);
+
+	endSingleTimeCommands(commandBuffer);
+}
+
+
 
 bool ComputeApp::isDeviceSuitable(vk::PhysicalDevice device) {
 	QueueFamilyIndices indices = findQueueFamilies(device);
