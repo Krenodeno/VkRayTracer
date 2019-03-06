@@ -156,9 +156,9 @@ std::vector<BNodeGPU> transform(const BVH& bvh) {
 				stackG.pop_back();
 				//set skip
 				remap[current].skip = remap.size();
+				if (stack.empty()) break;	// End
 			}
-			if (stack.empty())
-				break;
+			if (stack.empty()) break;
 			id = bvh.nodes[stack.back()].right;
 			current = remap.size();
 
