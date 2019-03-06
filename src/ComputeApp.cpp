@@ -3,6 +3,7 @@
 #include <cassert>
 #include <fstream>
 #include <iostream>
+#include <bitset>
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 	VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -451,12 +452,15 @@ ComputeApp::QueueFamilyIndices ComputeApp::findQueueFamilies(vk::PhysicalDevice 
 uint32_t ComputeApp::findMemoryType(uint32_t memoryTypeBits, vk::MemoryPropertyFlags properties) {
 	auto memoryProperties = physicalDevice.getMemoryProperties();
 
+	std::cout << "Wanted Memory Properties : " << vk::to_string(properties) << std::endl;
+
 	for (uint32_t i = 0; i < memoryProperties.memoryTypeCount; i++) {
-		if (
-			(memoryTypeBits & (i << 1)) &&
-			((memoryProperties.memoryTypes[i].propertyFlags & properties) == properties)
-		)
+		std::cout << "Memory Type " << i << " : " << vk::to_string(memoryProperties.memoryTypes[i].propertyFlags) << std::endl;
+		std::cout << std::bitset<32>(memoryTypeBits) << std::endl;
+		std::cout << std::bitset<32>(i << 1) << std::endl;
+		if (memoryTypeBits & (i << 1) && (memoryProperties.memoryTypes[i].propertyFlags & properties) == properties) {
 			return i;
+		}
 	}
 
 	throw std::runtime_error("Failed to find a suitable memory type!");
