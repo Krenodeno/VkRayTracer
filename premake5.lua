@@ -1,8 +1,7 @@
 -- premake5.lua
 workspace "compute"
 
-	configurations { "Debug", "Release" }
-	platforms "x64"
+	configurations { "Debug", "DebugSAN", "Release" }
 	architecture "x64"
 
 	location "build/"
@@ -22,13 +21,20 @@ workspace "compute"
 
 	includedirs { "extern/include/" }
 
-	filter "configurations:Debug"
+	filter "configurations:Debug*"
 		symbols "On"
+		optimize "Debug"
 
 	filter "configurations:Release"
+		symbols "Off"
 		optimize "On"
 		buildoptions { "-fopenmp" }
 		linkoptions { "-fopenmp" }
+
+	filter "configurations:*SAN"
+		buildoptions { "-fno-omit-frame-pointer" }
+		buildoptions { "-fsanitize=undefined,address" }
+		linkoptions { "-fsanitize=undefined,address" }
 
 	filter {}
 
