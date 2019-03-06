@@ -60,7 +60,7 @@ public:
 	/**
 	 * Add a buffer of bufferSize size to be created at init and return its index
 	 */
-	int addBuffer(uint64_t bufferSize);
+	int addBuffer(uint64_t bufferSize, bool writeFromHost = true);
 
 	/**
 	 * Fill a buffer with data
@@ -72,10 +72,22 @@ public:
 	template<typename T>
 	std::vector<T> getDataFromBuffer(uint32_t index, uint64_t elementCount) {
 		uint64_t dataSize = elementCount * sizeof(T);
-		// Get data back from Device Memory
-		auto data = static_cast<T*>(device.mapMemory(buffersMemory[index], /*offset*/ 0, dataSize));
+
+		// Create staging buffer
+		vk::Buffer stagingBuffer;
+		vk::DeviceMemory stagingBufferMemory;
+		createBuffer(dataSize, vk::BufferUsageFlagBits::eTransferDst, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent, stagingBuffer, stagingBufferMemory);
+		// Copy buffer data from device to host accessbile buffer
+		copyBuffer(buffers[index], stagingBuffer, dataSize);
+
+		// Get data back
+		auto data = static_cast<T*>(device.mapMemory(stagingBufferMemory, /*offset*/ 0, dataSize));
 		std::vector<T> res(data, data + elementCount);
-		device.unmapMemory(buffersMemory[index]);
+		device.unmapMemory(stagingBufferMemory);
+
+		// Destroy stagin buffer
+		device.freeMemory(stagingBufferMemory);
+		device.destroyBuffer(stagingBuffer);
 		return res;
 	}
 
@@ -107,6 +119,7 @@ private:
 	std::vector<vk::Buffer> buffers;
 	std::vector<vk::DeviceMemory> buffersMemory;
 	std::vector<uint64_t> bufferSizes;
+	std::vector<vk::BufferUsageFlags> bufferUsages;
 
 	void cleanup();
 

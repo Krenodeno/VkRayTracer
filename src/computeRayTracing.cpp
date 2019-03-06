@@ -149,7 +149,7 @@ int main( const int argc, const char **argv )
 	int rayBuffer = compute.addBuffer(rayBufferSize);
 	// Hits
 	uint64_t hitBufferSize = image.height() * image.width() * sizeof(HitGPU);
-	int hitBuffer = compute.addBuffer(hitBufferSize);
+	int hitBuffer = compute.addBuffer(hitBufferSize, false);
 #endif
 
 	auto cpu_start = std::chrono::high_resolution_clock::now();
@@ -216,7 +216,7 @@ int main( const int argc, const char **argv )
 		if (HitGPU hit = hits[i]) {
 			TriangleData triangle = mesh.triangle(hit.id);
 			Point p = point(hit, rays[i]);			// point d'intersection
-			Vector pn = normal(hit, triangle);	// normale interpolee du triangle au point d'intersection
+			Vector pn = normal(hit, triangle);		// normale interpolee du triangle au point d'intersection
 			if(dot(pn, rays[i].direction) > 0)		// retourne la normale vers l'origine du rayon
 				pn = -pn;
 

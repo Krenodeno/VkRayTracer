@@ -60,8 +60,9 @@ void ComputeApp::draw() {
 	device.destroyFence(fence);
 }
 
-int ComputeApp::addBuffer(uint64_t bufferSize) {
+int ComputeApp::addBuffer(uint64_t bufferSize, bool writeFromHost) {
 	bufferSizes.push_back(bufferSize);
+	bufferUsages.push_back(writeFromHost ? vk::BufferUsageFlagBits::eTransferDst : vk::BufferUsageFlagBits::eTransferSrc);
 	return (int)bufferSizes.size() - 1;
 }
 
@@ -242,7 +243,7 @@ void ComputeApp::createBuffers() {
 	for (int i = 0; i < bufferSizes.size(); i++) {
 		buffers.push_back(vk::Buffer());
 		buffersMemory.push_back(vk::DeviceMemory());
-		createBuffer(bufferSizes[i], vk::BufferUsageFlagBits::eTransferDst | vk::BufferUsageFlagBits::eStorageBuffer, vk::MemoryPropertyFlagBits::eDeviceLocal, buffers[i], buffersMemory[i]);
+		createBuffer(bufferSizes[i], bufferUsages[i] | vk::BufferUsageFlagBits::eStorageBuffer, vk::MemoryPropertyFlagBits::eDeviceLocal, buffers[i], buffersMemory[i]);
 	}
 }
 
