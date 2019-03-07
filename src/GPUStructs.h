@@ -180,7 +180,6 @@ std::vector<BNodeGPU> transform(const BVH& bvh) {
 	for (auto& node : remap) {
 		if (node.skip >= remap.size())
 			node.skip = -1;
-		std::cout << cpt++ << " : next=" << node.next << ", skip=" << node.skip << "\n";
 	}
 
 	return remap;

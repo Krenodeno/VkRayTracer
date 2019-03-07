@@ -136,22 +136,6 @@ int main( const int argc, const char **argv )
 	assert(!triangles.empty());
 
 
-#if GPU_COMPUTE
-	// La taille des buffers est en octets
-	// Géométrie : Triangles
-	uint64_t triangleBufferSize = triangles.size() * sizeof(triangles[0]);
-	int triangleBuffer = compute.addBuffer(triangleBufferSize);
-	// BVH
-	uint64_t bvhBufferSize = pbvh.size() * sizeof(pbvh[0]);
-	int bvhBuffer = compute.addBuffer(bvhBufferSize);
-	// Rayons
-	uint64_t rayBufferSize = image.height() * image.width() * sizeof(RayGPU);
-	int rayBuffer = compute.addBuffer(rayBufferSize);
-	// Hits
-	uint64_t hitBufferSize = image.height() * image.width() * sizeof(HitGPU);
-	int hitBuffer = compute.addBuffer(hitBufferSize, false);
-#endif
-
 	auto cpu_start = std::chrono::high_resolution_clock::now();
 
 	std::cout << "Generating Fibonacci Distribution\n";
@@ -192,6 +176,25 @@ int main( const int argc, const char **argv )
 	}
 
 #if GPU_COMPUTE
+	// La taille des buffers est en octets
+	// Géométrie : Triangles
+	uint64_t triangleBufferSize = triangles.size() * sizeof(triangles[0]);
+	int triangleBuffer = compute.addBuffer(triangleBufferSize);
+	// BVH
+	uint64_t bvhBufferSize = pbvh.size() * sizeof(pbvh[0]);
+	int bvhBuffer = compute.addBuffer(bvhBufferSize);
+	// Rayons
+	uint64_t rayBufferSize = image.height() * image.width() * sizeof(RayGPU);
+	int rayBuffer = compute.addBuffer(rayBufferSize);
+	// Hits
+	uint64_t hitBufferSize = image.height() * image.width() * sizeof(HitGPU);
+	int hitBuffer = compute.addBuffer(hitBufferSize, false);
+
+	std::cout << "GPU Memory footprint :\n";
+	std::cout << "    Triangles : " << triangleBufferSize / 1024 << "KB\n";
+	std::cout << "    BVH :  " << bvhBufferSize / 1000 << "KB\n";
+	std::cout << "    Rays : " << rayBufferSize / 1000 << "KB\n";
+	std::cout << "    Hits : " << hitBufferSize / 1000 << "KB\n";
 
 	// init vulkan : effectively create buffers
 	compute.init();
@@ -206,7 +209,7 @@ int main( const int argc, const char **argv )
 	compute.draw();
 	auto gpu_stop = std::chrono::high_resolution_clock::now();
 	int gpu_time = std::chrono::duration_cast<std::chrono::milliseconds>(gpu_stop - gpu_start).count();
-	printf("GPU  %ds %03dms\n", int(gpu_time / 1000), int(gpu_time % 1000));
+	printf("GPU computation took %ds %03dms\n", int(gpu_time / 1000), int(gpu_time % 1000));
 
 	// Get data back
 	std::vector<HitGPU> hits = compute.getDataFromBuffer<HitGPU>((uint32_t)hitBuffer, rays.size());

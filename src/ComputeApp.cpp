@@ -73,9 +73,9 @@ void ComputeApp::fillBuffer(uint32_t index, const void* dataToCopy, uint64_t dat
 	vk::DeviceMemory stagingBufferMemory;
 	createBuffer(dataSize, vk::BufferUsageFlagBits::eTransferSrc, vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent, stagingBuffer, stagingBufferMemory);
 
-	auto data = device.mapMemory(buffersMemory[index], /*offset*/ 0, dataSize, vk::MemoryMapFlags());
+	auto data = device.mapMemory(stagingBufferMemory, /*offset*/ 0, dataSize, vk::MemoryMapFlags());
 		std::memcpy(data, dataToCopy, static_cast<size_t>(dataSize));
-	device.unmapMemory(buffersMemory[index]);
+	device.unmapMemory(stagingBufferMemory);
 
 	copyBuffer(stagingBuffer, buffers[index], dataSize);
 
@@ -452,13 +452,8 @@ ComputeApp::QueueFamilyIndices ComputeApp::findQueueFamilies(vk::PhysicalDevice 
 uint32_t ComputeApp::findMemoryType(uint32_t memoryTypeBits, vk::MemoryPropertyFlags properties) {
 	auto memoryProperties = physicalDevice.getMemoryProperties();
 
-	std::cout << "Wanted Memory Properties : " << vk::to_string(properties) << std::endl;
-
 	for (uint32_t i = 0; i < memoryProperties.memoryTypeCount; i++) {
-		std::cout << "Memory Type " << i << " : " << vk::to_string(memoryProperties.memoryTypes[i].propertyFlags) << std::endl;
-		std::cout << std::bitset<32>(memoryTypeBits) << std::endl;
-		std::cout << std::bitset<32>(i << 1) << std::endl;
-		if (memoryTypeBits & (i << 1) && (memoryProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+		if (memoryTypeBits & (1 << i) && (memoryProperties.memoryTypes[i].propertyFlags & properties) == properties) {
 			return i;
 		}
 	}
