@@ -224,8 +224,9 @@ int main( const int argc, const char **argv )
 	auto gpu_start = std::chrono::high_resolution_clock::now();
 	compute.draw();
 	auto gpu_stop = std::chrono::high_resolution_clock::now();
-	int gpu_time = std::chrono::duration_cast<std::chrono::milliseconds>(gpu_stop - gpu_start).count();
-	printf("GPU computation took %ds %03dms\n", int(gpu_time / 1000), int(gpu_time % 1000));
+	auto gpu_time = gpu_stop - gpu_start;
+	std::cout << "GPU computation took " << std::chrono::duration_cast<std::chrono::seconds>(gpu_time).count() << "s ";
+	std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(gpu_time).count() % 1000 << "ms\n";
 
 	// Get data back
 	std::vector<HitGPU> hits = compute.getDataFromBuffer<HitGPU>((uint32_t)hitBuffer, rays.size());

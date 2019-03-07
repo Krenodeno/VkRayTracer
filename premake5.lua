@@ -23,7 +23,7 @@ workspace "compute"
 
 	filter "configurations:Debug*"
 		symbols "On"
-		optimize "Debug"
+		optimize "Off"
 
 	filter "configurations:Release"
 		symbols "Off"
