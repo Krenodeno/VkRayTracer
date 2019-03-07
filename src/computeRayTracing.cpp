@@ -60,6 +60,19 @@ void fillVertexBuffer(ComputeApp& compute, uint32_t bufIndex, const Mesh& mesh) 
 }
 
 
+std::string pretty(uint32_t byteCount) {
+	std::vector<const char*> suffixes = { "B", "KB", "MB", "GB", "TB" };
+	int i = 0;
+
+	while (byteCount > 1000) {
+		byteCount /= 1000;
+		i++;
+	}
+
+	return std::to_string(byteCount) + std::string(suffixes[i]);
+}
+
+
 int main( const int argc, const char **argv )
 {
 
@@ -120,7 +133,9 @@ int main( const int argc, const char **argv )
 	// Créer le pipeline compute
 	ComputeApp compute;
 
-	compute.setWorkgroupSize(image.width() * image.height() / WORKGROUP_SIZE);
+	uint32_t workgroupCount = image.width() * image.height() / WORKGROUP_SIZE;
+
+	compute.setWorkgroupCount(workgroupCount);
 #endif
 
 	// Transformer l'arbre pour le parcourir sur GPU
@@ -191,10 +206,10 @@ int main( const int argc, const char **argv )
 	int hitBuffer = compute.addBuffer(hitBufferSize, false);
 
 	std::cout << "GPU Memory footprint :\n";
-	std::cout << "    Triangles : " << triangleBufferSize / 1024 << "KB\n";
-	std::cout << "    BVH :  " << bvhBufferSize / 1000 << "KB\n";
-	std::cout << "    Rays : " << rayBufferSize / 1000 << "KB\n";
-	std::cout << "    Hits : " << hitBufferSize / 1000 << "KB\n";
+	std::cout << "    Triangles : " << pretty(triangleBufferSize) << "\n";
+	std::cout << "    BVH :  " << pretty(bvhBufferSize) << "\n";
+	std::cout << "    Rays : " << pretty(rayBufferSize) << "\n";
+	std::cout << "    Hits : " << pretty(hitBufferSize) << "\n";
 
 	// init vulkan : effectively create buffers
 	compute.init();
@@ -205,6 +220,7 @@ int main( const int argc, const char **argv )
 	compute.fillBuffer(rayBuffer, rays.data(), rayBufferSize);
 
 	// Compute rays
+	std::cout << "Dispatching " << workgroupCount << " Work Goups on the GPU...\n";
 	auto gpu_start = std::chrono::high_resolution_clock::now();
 	compute.draw();
 	auto gpu_stop = std::chrono::high_resolution_clock::now();

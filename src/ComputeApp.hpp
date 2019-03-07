@@ -67,7 +67,7 @@ public:
 	 */
 	void fillBuffer(uint32_t index, const void* data, uint64_t dataSize);
 
-	void setWorkgroupSize(uint32_t size) { workgroupSize = size; }
+	void setWorkgroupCount(uint32_t size) { workgroupSize = size; }
 
 	template<typename T>
 	std::vector<T> getDataFromBuffer(uint32_t index, uint64_t elementCount) {
