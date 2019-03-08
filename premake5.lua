@@ -13,13 +13,12 @@ workspace "compute"
 	local gKitFiles = { gKitDir .. "src/gKit/*.cpp",  gKitDir .. "src/gKit/*.h" }
 
 	includedirs (gKitDir .. "src/gKit")
+	includedirs (gKitDir .. "extern/include/")
 
 	links { "SDL2", "SDL2_image", "GLEW", "GL" }
 
 	language "C++"
 	cppdialect "C++11"
-
-	includedirs { "extern/include/" }
 
 	filter "configurations:Debug*"
 		symbols "On"
