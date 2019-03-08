@@ -50,6 +50,15 @@ void repere( const Vector &n, Vector &b1, Vector &b2 )
 	b2 = Vector(b, sign + n.y * n.y * a, -n.y);
 }
 
+Vector uniform_direction( const float u1, const float u2 )
+{
+	float cos_theta= u1;
+	float phi= 2.f * float(M_PI) * u2;
+	float sin_theta= std::sqrt(std::max(0.f, 1.f - cos_theta*cos_theta));
+
+	return Vector(std::cos(phi) * sin_theta, std::sin(phi) * sin_theta, cos_theta);
+}
+
 
 void fillVertexBuffer(ComputeApp& compute, uint32_t bufIndex, const Mesh& mesh) {
 	std::vector<vec3> positions;
@@ -76,7 +85,7 @@ std::string pretty(uint32_t byteCount) {
 int main( const int argc, const char **argv )
 {
 
-	int directionCount = 16;
+	int directionCount = 128;
 	const char *mesh_filename = "resources/cornell.obj";
 	const char *orbiter_filename = "resources/cornell_orbiter.txt";
 
@@ -86,6 +95,12 @@ int main( const int argc, const char **argv )
 
 	printf("%s: '%s' '%s'\n", argv[0], mesh_filename, orbiter_filename);
 	printf("Nombre de directions par rebond : %i\n", directionCount);
+
+	// nombres aleatoires, version c++11
+	std::random_device seed;
+	// un generateur par thread... pas de synchronisation
+	std::mt19937 rng(seed());
+	std::uniform_real_distribution<float> u01(0.f, 1.f);
 
 	// creer l'image resultat
 	Image image(1024, 640, Color(.0f, .0f, .0f, 0.f));
@@ -177,10 +192,12 @@ int main( const int argc, const char **argv )
 		fiboDistribution.push_back(dir);
 	}
 
+	const size_t pixelCount = image.height() * image.width();
+
 	// Générer les rayons
 	std::cout << "Generating firsts Rays directions\n";
-	std::vector<RayGPU> rays;
-	rays.reserve(image.height() * image.width());
+	std::vector<RayGPU> primaryRays;
+	primaryRays.reserve(pixelCount);
 	// Calcul de la position du plan image dans le repère monde
 	Point d1;
 	Vector dx1, dy1;
@@ -194,7 +211,7 @@ int main( const int argc, const char **argv )
 			Point o = camera.position();	// origine
 			Point e = d1 + x*dx1 + y*dy1;	// extremite
 
-			rays.push_back(RayGPU(o, e));
+			primaryRays.push_back(RayGPU(o, e));
 		}
 	}
 
@@ -225,7 +242,7 @@ int main( const int argc, const char **argv )
 	// Fill the buffers
 	compute.fillBuffer(triangleBuffer, triangles.data(), triangleBufferSize);
 	compute.fillBuffer(bvhBuffer, pbvh.data(), bvhBufferSize);
-	compute.fillBuffer(rayBuffer, rays.data(), rayBufferSize);
+	compute.fillBuffer(rayBuffer, primaryRays.data(), rayBufferSize);
 
 	// Compute rays
 	std::cout << "Dispatching " << workgroupCount << " Work Groups on the GPU...\n";
@@ -237,27 +254,132 @@ int main( const int argc, const char **argv )
 	std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(gpu_time).count() % 1000 << "ms\n";
 
 	// Get data back
-	std::vector<HitGPU> hits = compute.getDataFromBuffer<HitGPU>((uint32_t)hitBuffer, rays.size());
+	std::vector<HitGPU> primaryHits = compute.getDataFromBuffer<HitGPU>((uint32_t)hitBuffer, primaryRays.size());
 
-	// Compute hits
-	for (int i = 0; i < hits.size(); i++) {
-		if (HitGPU hit = hits[i]) {
+	// Get color and hit
+	for (int i = 0; i < pixelCount; i++) {
+		if (HitGPU& hit = primaryHits[i]) {
 			TriangleData triangle = mesh.triangle(hit.id);
-			Point p = point(hit, rays[i]);			// point d'intersection
+			Point p = point(hit, primaryRays[i]);			// point d'intersection
 			Vector pn = normal(hit, triangle);		// normale interpolee du triangle au point d'intersection
-			if(dot(pn, rays[i].direction) > 0)		// retourne la normale vers l'origine du rayon
+			if (dot(pn, primaryRays[i].direction) > 0)		// retourne la normale vers l'origine du rayon
 				pn = -pn;
 
-			// couleur du pixel
-			float cos_theta = dot(normalize(pn), normalize(-rays[i].direction));
-			Color pColor = std::max(0.f, cos_theta) * mesh.mesh_material(mesh.materials()[hit.id]).diffuse;
-			Color color = pColor;
-
+			// pour se souvenir que le rayon primaire a touché
+			Color diffuseColor = mesh.mesh_material(mesh.materials()[hit.id]).diffuse;
+			Color emissionColor = mesh.mesh_material(mesh.materials()[hit.id]).emission;
 			int py = i / image.width();
 			int px = i % image.width();
-
-			image(px, py) = Color(color, 1);
+			if( emissionColor.power() > 0 )
+				image(px, py) = Color(emissionColor, -1.f);
+			else
+				image(px, py) = Color(diffuseColor, 1.f);
 		}
+	}
+
+	std::vector<HitGPU> secondaryHits;
+	std::vector<RayGPU> secondaryRays(pixelCount);
+	// 1 rebond
+	// pour chaque direction
+	for (int dir = 0; dir < directionCount; dir++) {
+
+		// pour chaque pixel (== rayon primaire == hits)
+		for (int i = 0; i < pixelCount; i++) {
+			// si il y a eu un hit
+			int py = i / image.width();
+			int px = i % image.width();
+			if( image(px, py).a > 0 )
+			{
+				// uniform 01 pour construire les directions
+				float u1 = u01(rng);
+				float u2 = u01(rng);
+				Vector direction = uniform_direction(u1, u2);
+
+				HitGPU& hit = primaryHits[i];
+				TriangleData triangle = mesh.triangle(hit.id);
+				Point p = point(hit, primaryRays[i]);			// point d'intersection
+				Vector pn = normal(hit, triangle);		// normale interpolee du triangle au point d'intersection
+				if (dot(pn, primaryRays[i].direction) > 0)		// retourne la normale vers l'origine du rayon
+					pn = -pn;
+
+				Vector b1, b2;
+				repere(pn, b1, b2);
+				// Vector w = fiboDistribution[dir].x * b1 + fiboDistribution[dir].y * b2 + fiboDistribution[dir].z * pn;
+				Vector w = direction.x * b1 + direction.y * b2 + direction.z * pn;
+
+				// générer le nouveau rayon
+
+				// pour la GI
+				// RayGPU shadow(p + pn * .001f, w);
+
+				// pour l'AO
+				RayGPU shadow(p + pn * .001f, p + w * 10.f);
+				shadow.tmax = 2.f;
+
+				// nouveau rayon
+				secondaryRays[i] = shadow;
+			}
+			else { // flag le rayon pour ne pas faire de calcul inutile
+				Point a,b;
+				RayGPU ray(a,b);
+				ray.tmax = -1.f;
+				secondaryRays[i] = ray;
+			}
+		}
+
+		// calculer les intersections
+		compute.fillBuffer(rayBuffer, secondaryRays.data(), rayBufferSize);
+
+		std::cout << "direction " << dir << "\n";
+		std::cout << "Dispatching " << workgroupCount << " Work Groups on the GPU...\n";
+		auto gpu_start = std::chrono::high_resolution_clock::now();
+		compute.draw();
+		auto gpu_stop = std::chrono::high_resolution_clock::now();
+		auto gpu_time = gpu_stop - gpu_start;
+		std::cout << "GPU computation took " << std::chrono::duration_cast<std::chrono::seconds>(gpu_time).count() << "s ";
+		std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(gpu_time).count() % 1000 << "ms\n";
+
+		// aggréger les résultats
+		secondaryHits = compute.getDataFromBuffer<HitGPU>((uint32_t)hitBuffer, secondaryRays.size());
+
+		for (int h = 0; h < pixelCount; h++) {
+			int py = h / image.width();
+			int px = h % image.width();
+			if (image(px, py).a > 0.f) {	// ne tester que les rayons relancés
+				if (HitGPU hit = secondaryHits[h]) {
+
+					// pour la GI : diffuse * cos
+					// touche un autre triangle
+					// illuminé par les sources
+					// Color emission = mesh.mesh_material(mesh.materials()[hit.id]).emission;
+					// if( emission.power() > 0 )
+					// {
+					// 	TriangleData triangle = mesh.triangle(hit.id);
+					// 	Vector pn = normal(hit, triangle);		// normale interpolee du triangle au point d'intersection
+					// 	float cos_theta = dot(normalize(pn), normalize(primaryRays[h].direction));
+					// 	image(px, py).a += std::abs(cos_theta) / float(directionCount);
+					// }
+				}
+				else
+				{
+					// pour l'AO
+					image(px, py).a += 1.f / float(directionCount);
+				}
+			}
+		}
+	}
+
+	// Calculer image finale
+	for (int i = 0; i < pixelCount; i++) {
+		int py = i / image.width();
+		int px = i % image.width();
+		Color c = image(px, py);
+		if (c.a > 0.0) {
+			image(px, py) = Color(c * (c.a - 1.f), 1.f);
+		}
+		else if( c.a < 0.f )
+			image(px, py) = Color(c, 1.f);
+
 	}
 
 #else
@@ -279,7 +401,7 @@ int main( const int argc, const char **argv )
 				TriangleData triangle = mesh.triangle(hit.id);
 				Point p = point(hit, ray);			// point d'intersection
 				Vector pn = normal(hit, triangle);	// normale interpolee du triangle au point d'intersection
-				if(dot(pn, ray.direction) > 0)		// retourne la normale vers l'origine du rayon
+				if (dot(pn, ray.direction) > 0)		// retourne la normale vers l'origine du rayon
 					pn = -pn;
 
 				float sum = 0.f;

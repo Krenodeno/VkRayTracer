@@ -12,6 +12,7 @@ struct RayGPU {
 	alignas(16) vec3 direction;
 	float tmax;
 
+	RayGPU() : origin(), direction(), tmax(-1.f) {}
 	RayGPU(const Point& o, const Point& e) : origin(o), direction(Vector(o, e)), tmax(1.f) {}
 	RayGPU(const Point& o, const Vector& d) : origin(o), direction(d), tmax(std::numeric_limits<float>::max()) {}
 };
@@ -132,6 +133,7 @@ std::vector<BNodeGPU> transform(const BVH& bvh) {
 			res.pmax = vec3(node.bounds.pmax.x, node.bounds.pmax.y, node.bounds.pmax.z);
 
 			if (node.leaf()) {
+				assert(node.n() < 15);
 				res.next = -( (node.begin() << 4) | node.n() );	// Triangle indices (the offset must be less than 16)
 				assert(res.leaf());
 			}
