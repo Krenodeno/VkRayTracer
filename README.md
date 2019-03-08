@@ -12,7 +12,8 @@ Les deux utilisent les mêmes structures de données, notamment un BVH cousu pou
 Les structures se trouvent dans le fichier `GPUStructs.h`, ainsi que la fonction de transformation du BVH en BVH cousu.
 J'aurais pu l'écrire en récursif, mais je ne l'ai pas fait. Ca a été plus compliqué à écrire, et c'est pas forcément bien lisible. Mais ça fonctionne (tant que la racine n'est pas une feuille).
 Le compute shader est lancé à l'aide de l'API Vulkan. La classe `ComputeApp` contient tout le code nécessaire à la création des ressources sur GPU.
-La gestion est perfectible, mais ça fonctionne pour le moment.
+La gestion mémoire est perfectible, par exemple il y a une allocation de mémoire par buffer.
+
 
 ## Build
 Éditer `premake5.lua` pour indiquer le chemin vers gkit2light. Exécuter le script à la racine du projet pour générer les fichiers de build et compiler:
@@ -23,5 +24,9 @@ Executer les programmes:
 ```
 ./bin/ray_tuto			<- Rendu CPU, 1 rebond (16 relances sur la spirale de Fibonacci)
 ./bin/ray_tuto_mc		<- Rendu CPU, 1 rebond (16 relances, directions aléatoires)
-./bin/GPURayTracing		<- Rendu GPU
+./bin/GPURayTracing		<- Rendu GPU, 1 rebond (16 relances, directions aléatoires)
+```
+Pour spécifier un autre mesh, une autre caméra, ou encore un nombre de directions:
+```
+./bin/GPURayTracing [resources/cornell.obj [resources/cornell_orbiter.txt [16]]]
 ```
