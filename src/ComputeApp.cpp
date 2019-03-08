@@ -309,7 +309,7 @@ void ComputeApp::createComputePipeline() {
 
 	// Create Shader
 	uint32_t filelength;
-	std::vector<uint32_t> code = readShaderFile(filelength, "resources/comp.spv");
+	std::vector<uint32_t> code = readShaderFile(filelength, "resources/shader.comp.spv");
 	vk::ShaderModuleCreateInfo shaderCreateInfo;
 	shaderCreateInfo.codeSize = filelength;
 	shaderCreateInfo.pCode = code.data();

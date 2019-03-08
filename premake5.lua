@@ -70,3 +70,12 @@ project "tuto_bvh_simple"
 	files { "src/tuto_bvh_simple.cpp" }
 
 	links "gKit"
+
+project "CompileShaders"
+	kind "Utility"
+	files { "resources/*.comp" }
+
+	filter "files:resources/*"
+		buildcommands 'glslangValidator -V -o "%{file.reldirectory}/%{file.name}.spv" "%{file.relpath}"'
+		--buildinputs "/%{file.name}"
+		buildoutputs "%{file.reldirectory}/%{file.name}.spv"
