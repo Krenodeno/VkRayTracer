@@ -16,6 +16,9 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
 	const VkDebugUtilsMessengerCallbackDataEXT*,
 	void*);
 
+/**
+ * Open a file and return it as an uint32_t array (SPIR-V bytecode)
+ */
 static std::vector<uint32_t> readShaderFile(uint32_t& length, std::string filename) {
 	FILE* fp = fopen(filename.c_str(), "rb");
 	if (fp == NULL) {
@@ -67,8 +70,15 @@ public:
 	 */
 	void fillBuffer(uint32_t index, const void* data, uint64_t dataSize);
 
+	/**
+	 * Set the number of work group to be dispatched for the computing task
+	 */
 	void setWorkgroupCount(uint32_t size) { workgroupSize = size; }
 
+
+	/**
+	 * Get data from a compute buffer. Buffer designated by its index must be flaged with TransferSrc usage flag
+	 */
 	template<typename T>
 	std::vector<T> getDataFromBuffer(uint32_t index, uint64_t elementCount) {
 		uint64_t dataSize = elementCount * sizeof(T);
