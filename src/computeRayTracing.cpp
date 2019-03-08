@@ -97,6 +97,7 @@ int main( const int argc, const char **argv )
 		return 1;
 
 	// construire le bvh ou recuperer l'ensemble de triangles du mesh...
+	std::cout << "Building BVH...\n";
 	CentroidBuilder builder;
 	BVH bvh(mesh, builder);
 
@@ -124,7 +125,7 @@ int main( const int argc, const char **argv )
 		return 1;
 
 	// recupere les transformations view, projection et viewport pour generer les rayons
-	float fov = 45.f;
+	float fov = 70.f;
 	Transform model = Identity();
 	Transform view = camera.view();
 	Transform projection = camera.projection(image.width(), image.height(), fov);
@@ -138,10 +139,17 @@ int main( const int argc, const char **argv )
 	compute.setWorkgroupCount(workgroupCount);
 #endif
 
+	auto transf_start = std::chrono::high_resolution_clock::now();
 	// Transformer l'arbre pour le parcourir sur GPU
 	// l'id 0 est la racine
 	std::vector<BNodeGPU> pbvh = transform(bvh);
 
+	auto transf_stop = std::chrono::high_resolution_clock::now();
+	auto transf_time = transf_stop - transf_start;
+	std::cout << "BVH GPU suitability transformation took " << std::chrono::duration_cast<std::chrono::seconds>(transf_time).count() << "s ";
+	std::cout << std::chrono::duration_cast<std::chrono::milliseconds>(transf_time).count() % 1000 << "ms\n";
+
+	// Remplir le tableau de triangles
 	std::vector<TriangleGPU> triangles;
 	for (const auto& tri : bvh.triangles) {
 		triangles.emplace_back(tri);
@@ -169,11 +177,11 @@ int main( const int argc, const char **argv )
 		fiboDistribution.push_back(dir);
 	}
 
+	// Générer les rayons
 	std::cout << "Generating firsts Rays directions\n";
 	std::vector<RayGPU> rays;
 	rays.reserve(image.height() * image.width());
-	// Générer les rayons
-
+	// Calcul de la position du plan image dans le repère monde
 	Point d1;
 	Vector dx1, dy1;
 	camera.frame(image.width(), image.height(), 1, fov, d1, dx1, dy1);
@@ -220,7 +228,7 @@ int main( const int argc, const char **argv )
 	compute.fillBuffer(rayBuffer, rays.data(), rayBufferSize);
 
 	// Compute rays
-	std::cout << "Dispatching " << workgroupCount << " Work Goups on the GPU...\n";
+	std::cout << "Dispatching " << workgroupCount << " Work Groups on the GPU...\n";
 	auto gpu_start = std::chrono::high_resolution_clock::now();
 	compute.draw();
 	auto gpu_stop = std::chrono::high_resolution_clock::now();
