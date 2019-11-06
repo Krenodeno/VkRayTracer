@@ -1,4 +1,3 @@
-Thomas Fromont p1304255
 # TP Programmation GPU
 ## Rapport
 
@@ -15,6 +14,10 @@ Le compute shader est lancé à l'aide de l'API Vulkan. La classe `ComputeApp` c
 La gestion mémoire est perfectible, par exemple il y a une allocation de mémoire par buffer.
 
 ![screen capture](screencap.png)
+
+## Dépendances
+La librairie gKit2Light est requise pour compiler les exécutables. Elle est disponible [à cette adresse](https://forge.univ-lyon1.fr/Alexandre.Meyer/gkit2light).
+Il faut modifier le chemin d'accès à gkit dans `premake5.lua` avant de générer les fichiers de projet avec premake.
 
 ## Build
 Éditer `premake5.lua` pour indiquer le chemin vers gkit2light. Exécuter le script à la racine du projet pour générer les fichiers de build et compiler:
