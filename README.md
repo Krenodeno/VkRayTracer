@@ -14,6 +14,7 @@ J'aurais pu l'écrire en récursif, mais je ne l'ai pas fait. Ca a été plus co
 Le compute shader est lancé à l'aide de l'API Vulkan. La classe `ComputeApp` contient tout le code nécessaire à la création des ressources sur GPU.
 La gestion mémoire est perfectible, par exemple il y a une allocation de mémoire par buffer.
 
+![screen capture](screencap.png)
 
 ## Build
 Éditer `premake5.lua` pour indiquer le chemin vers gkit2light. Exécuter le script à la racine du projet pour générer les fichiers de build et compiler:
